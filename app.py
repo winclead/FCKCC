@@ -137,7 +137,7 @@ def load_data(file_path):
 
 df_personal, df_merged, match_data, attendance_dict = load_data(selected_file)
 
-# --- 4. 차트 생성 헬퍼 함수 (🔥 줌/드래그 완벽 차단) ---
+# --- 4. 차트 생성 헬퍼 함수 ---
 def create_top10_chart(df, column, title, color):
     df_temp = df.copy()
     df_temp[column] = pd.to_numeric(df_temp[column], errors='coerce').fillna(0)
@@ -151,7 +151,6 @@ def create_top10_chart(df, column, title, color):
     fig = px.bar(df_top10, x=column, y="표시이름", orientation='h', text=column)
     fig.update_traces(marker_color=color, textposition='outside', textfont=dict(color='white', size=13))
     
-    # 🔥 fixedrange=True 및 dragmode=False 로 모바일 스크롤 터치 꼬임 완벽 방지
     fig.update_layout(
         title=dict(text=title, font=dict(size=18, color='white')),
         template="plotly_dark", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
@@ -182,7 +181,7 @@ def format_stat_with_highlight(players_list, search_keyword):
 if df_merged is None:
     st.error(f"⚠️ '{selected_file}' 파일을 찾을 수 없거나 형식이 잘못되었습니다.")
 else:
-    tab_main, tab_match = st.tabs(["📊 Main (개인기록 종합)", "🏟️ Match (상세 경기기록)"])
+    tab_main, tab_match = st.tabs(["📊 Main (개인기록)", "🏟️ Match (경기기록)"])
     
     with tab_main:
         st.write("")
@@ -207,48 +206,54 @@ else:
             r2_col1.metric("⚽ Goal 1st", f"{t_goal['이름']}", f"{int(t_goal['Goal (0.2)'])} 골")
             r2_col2.metric("🎯 Assist 1st", f"{t_assist['이름']}", f"{int(t_assist['Assist (0.2)'])} 도움")
             r2_col3.metric("⚖️ Balance 1st", f"{t_bal['이름']}", f"{int(t_bal['Balance (0.3)'])} 개")
-            r2_col4.metric("🛡️ C/S (DF) 1st", f"{t_csdf['이름']}", f"{int(t_csdf['C/S DF (0.2)'])} 회")
-            r2_col5.metric("🧤 C/S (GK) 1st", f"{t_csgk['이름']}", f"{int(t_csgk['C/S GK (0.2)'])} 회")
+            
+            # 🔥 글자 압축 변경 부분 (C/S DF -> DF)
+            r2_col4.metric("🛡️ DF 1st", f"{t_csdf['이름']}", f"{int(t_csdf['C/S DF (0.2)'])} 회")
+            r2_col5.metric("🧤 GK 1st", f"{t_csgk['이름']}", f"{int(t_csgk['C/S GK (0.2)'])} 회")
 
             st.divider()
 
             st.subheader("🔥 Top 10 Leaderboards")
-            cat_tabs = st.tabs(["종합 Point", "출전 Point", "Goal", "Assist", "Balance", "C/S DF", "C/S GK"])
+            
+            # 🔥 탭 이름 압축 변경
+            cat_tabs = st.tabs(["종합", "출전", "Goal", "Assist", "Balance", "DF", "GK"])
+            
+            # 🔥 차트 제목 압축 변경
             categories = [
-                ("종합 Point", "#FFD700", "🏆 종합 Point"), ("출전 Point", "#4DB6AC", "🏃 출전 Point"),
+                ("종합 Point", "#FFD700", "🏆 종합"), ("출전 Point", "#4DB6AC", "🏃 출전"),
                 ("Goal (0.2)", "#FF4B4B", "⚽ Goal"), ("Assist (0.2)", "#00D2FF", "🎯 Assist"),
-                ("Balance (0.3)", "#B388FF", "⚖️ Balance"), ("C/S DF (0.2)", "#00E676", "🛡️ C/S (DF)"),
-                ("C/S GK (0.2)", "#FFA726", "🧤 C/S (GK)")
+                ("Balance (0.3)", "#B388FF", "⚖️ Balance"), ("C/S DF (0.2)", "#00E676", "🛡️ DF"),
+                ("C/S GK (0.2)", "#FFA726", "🧤 GK")
             ]
             
             for i, (col_name, color, title) in enumerate(categories):
                 with cat_tabs[i]:
-                    # 🔥 config={'displayModeBar': False} 로 귀찮은 상단 툴바(카메라, 줌버튼) 제거
                     st.plotly_chart(create_top10_chart(df_merged, col_name, f"{title} Top 10", color), use_container_width=True, config={'displayModeBar': False})
 
             st.divider()
 
             st.subheader("📋 개인 전체 기록 (Total Database)")
             
-            st.info("💡 **종합 Point 계산식:** 출전 Point + (Goal × 0.2) + (Assist × 0.2) + (Balance × 0.3) + (C/S DF × 0.2) + (C/S GK × 0.2)")
+            st.info("💡 **종합 점수 계산식:** 출전 + (Goal × 0.2) + (Assist × 0.2) + (Balance × 0.3) + (DF × 0.2) + (GK × 0.2)")
             
             search_main = st.text_input("🔍 내 기록 찾기 (이름 검색)", placeholder="선수 이름을 입력하세요...", key="search_main")
 
             display_cols = ['이름', '입단년도', '종합 Point', '출전 Point', 'Goal (0.2)', 'Assist (0.2)', 'Balance (0.3)', 'C/S DF (0.2)', 'C/S GK (0.2)']
             df_display = df_merged[display_cols].sort_values(by="종합 Point", ascending=False).reset_index(drop=True)
-            df_display.columns = ['선수', '입단', '종합P', '출전P', '⚽골', '🎯도움', '⚖️밸런스', '🛡️DF', '🧤GK']
             
-            # 🔥 검색 전에 '순위' 열을 맨 앞에 추가 (내 원래 등수를 파악하기 위함)
+            # 🔥 표 컬럼 이름 압축 변경
+            df_display.columns = ['선수', '입단', '종합', '출전', '⚽골', '🎯도움', '⚖️밸런스', '🛡️DF', '🧤GK']
+            
             df_display.insert(0, '순위', range(1, len(df_display) + 1))
             
             if search_main:
                 df_display = df_display[df_display['선수'].str.contains(search_main, na=False)]
             
-            for col in ['종합P', '출전P']:
+            for col in ['종합', '출전']:
                 df_display[col] = pd.to_numeric(df_display[col], errors='coerce').round(2)
                 
             st.dataframe(
-                df_display.style.background_gradient(cmap='Blues_r', subset=['종합P']).format({'종합P': '{:.2f}', '출전P': '{:.2f}'}), 
+                df_display.style.background_gradient(cmap='Blues_r', subset=['종합']).format({'종합': '{:.2f}', '출전': '{:.2f}'}), 
                 use_container_width=True, 
                 hide_index=True, 
                 height=500
