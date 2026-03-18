@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import os
 import re
+import datetime
 
 # --- 1. 페이지 및 테마 설정 ---
 st.set_page_config(page_title="김청축 FC Analytics Dashboard", page_icon="⚽", layout="wide")
@@ -49,11 +50,19 @@ with col_selectbox:
     st.write("") 
     selected_year = st.selectbox("📅 시즌 (Year) 선택", years)
 
+selected_file = year_to_file[selected_year]
+
 with col_title:
     st.title(f"⚽ 김청축 FC Data Analytics ({selected_year})")
-    st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Performance Dashboard</span>", unsafe_allow_html=True)
-
-selected_file = year_to_file[selected_year]
+    
+    # 🔥 마지막 업데이트 시간 계산 (해외 서버 기준시간을 한국 KST 시간으로 변환)
+    timestamp = os.path.getmtime(selected_file)
+    dt_utc = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+    dt_kst = dt_utc.astimezone(datetime.timezone(datetime.timedelta(hours=9)))
+    update_str = dt_kst.strftime("%Y-%m-%d %H:%M")
+    
+    # 제목 아래에 업데이트 시간 표기
+    st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Performance Dashboard &nbsp;|&nbsp; 🔄 Last Updated: {update_str}</span>", unsafe_allow_html=True)
 
 # --- 3. 데이터 로딩 및 전처리 함수 ---
 @st.cache_data
@@ -322,19 +331,17 @@ st.divider()
 with st.expander("🔒 관리자 전용 메뉴 (데이터 업데이트)"):
     pw_input = st.text_input("관리자 비밀번호를 입력하세요", type="password")
     
-    # 로컬/서버 환경 모두에서 안전하게 비밀번호 확인 (비밀번호 설정이 안 되어있으면 못 들어감)
     admin_pw = st.secrets.get("ADMIN_PW", "설정안됨")
     
     if pw_input == admin_pw:
         st.success("인증 완료! 최신 엑셀 파일을 업로드하면 대시보드가 업데이트됩니다.")
-        uploaded_file = st.file_uploader("수정된 '김청축_202X_출석부.xlsx' 파일 선택", type=['xlsx'])
+        uploaded_file = st.file_uploader(f"수정된 '{selected_file}' 등 최신 파일 선택", type=['xlsx'])
         
         if uploaded_file is not None:
             if st.button("데이터 덮어쓰기 & 업데이트 진행"):
                 with st.spinner("GitHub에 업로드 중... 잠시만 기다려주세요 ⏳"):
                     try:
                         from github import Github
-                        # Secrets에 설정해둔 토큰과 레포지토리 정보 가져오기
                         g = Github(st.secrets["GITHUB_TOKEN"])
                         repo = g.get_repo(st.secrets["REPO_NAME"])
                         
@@ -342,13 +349,11 @@ with st.expander("🔒 관리자 전용 메뉴 (데이터 업데이트)"):
                         content = uploaded_file.getvalue()
                         
                         try:
-                            # 1. 기존 파일이 있으면 덮어쓰기 (Update)
                             contents = repo.get_contents(file_name)
                             repo.update_file(contents.path, f"Update {file_name} via Dashboard", content, contents.sha)
                             st.success(f"✅ [{file_name}] 파일 덮어쓰기 성공! 대시보드를 새로고침 해주세요.")
-                            st.cache_data.clear() # 캐시 지우기
+                            st.cache_data.clear()
                         except Exception as e:
-                            # 2. 파일이 없으면 새로 만들기 (Create - 예: 2026년 새 파일)
                             repo.create_file(file_name, f"Create {file_name} via Dashboard", content)
                             st.success(f"✅ [{file_name}] 신규 업로드 성공! 대시보드를 새로고침 해주세요.")
                             st.cache_data.clear()
