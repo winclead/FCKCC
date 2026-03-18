@@ -206,19 +206,13 @@ else:
             r2_col1.metric("⚽ Goal 1st", f"{t_goal['이름']}", f"{int(t_goal['Goal (0.2)'])} 골")
             r2_col2.metric("🎯 Assist 1st", f"{t_assist['이름']}", f"{int(t_assist['Assist (0.2)'])} 도움")
             r2_col3.metric("⚖️ Balance 1st", f"{t_bal['이름']}", f"{int(t_bal['Balance (0.3)'])} 개")
-            
-            # 🔥 글자 압축 변경 부분 (C/S DF -> DF)
             r2_col4.metric("🛡️ DF 1st", f"{t_csdf['이름']}", f"{int(t_csdf['C/S DF (0.2)'])} 회")
             r2_col5.metric("🧤 GK 1st", f"{t_csgk['이름']}", f"{int(t_csgk['C/S GK (0.2)'])} 회")
 
             st.divider()
 
             st.subheader("🔥 Top 10 Leaderboards")
-            
-            # 🔥 탭 이름 압축 변경
             cat_tabs = st.tabs(["종합", "출전", "Goal", "Assist", "Balance", "DF", "GK"])
-            
-            # 🔥 차트 제목 압축 변경
             categories = [
                 ("종합 Point", "#FFD700", "🏆 종합"), ("출전 Point", "#4DB6AC", "🏃 출전"),
                 ("Goal (0.2)", "#FF4B4B", "⚽ Goal"), ("Assist (0.2)", "#00D2FF", "🎯 Assist"),
@@ -240,8 +234,6 @@ else:
 
             display_cols = ['이름', '입단년도', '종합 Point', '출전 Point', 'Goal (0.2)', 'Assist (0.2)', 'Balance (0.3)', 'C/S DF (0.2)', 'C/S GK (0.2)']
             df_display = df_merged[display_cols].sort_values(by="종합 Point", ascending=False).reset_index(drop=True)
-            
-            # 🔥 표 컬럼 이름 압축 변경
             df_display.columns = ['선수', '입단', '종합', '출전', '⚽골', '🎯도움', '⚖️밸런스', '🛡️DF', '🧤GK']
             
             df_display.insert(0, '순위', range(1, len(df_display) + 1))
@@ -324,3 +316,42 @@ else:
                             </div>
                             """
                             st.markdown(html_q, unsafe_allow_html=True)
+
+# --- 7. 관리자 전용 데이터 업데이트 (엑셀 업로드) ---
+st.divider()
+with st.expander("🔒 관리자 전용 메뉴 (데이터 업데이트)"):
+    pw_input = st.text_input("관리자 비밀번호를 입력하세요", type="password")
+    
+    # 로컬/서버 환경 모두에서 안전하게 비밀번호 확인 (비밀번호 설정이 안 되어있으면 못 들어감)
+    admin_pw = st.secrets.get("ADMIN_PW", "설정안됨")
+    
+    if pw_input == admin_pw:
+        st.success("인증 완료! 최신 엑셀 파일을 업로드하면 대시보드가 업데이트됩니다.")
+        uploaded_file = st.file_uploader("수정된 '김청축_202X_출석부.xlsx' 파일 선택", type=['xlsx'])
+        
+        if uploaded_file is not None:
+            if st.button("데이터 덮어쓰기 & 업데이트 진행"):
+                with st.spinner("GitHub에 업로드 중... 잠시만 기다려주세요 ⏳"):
+                    try:
+                        from github import Github
+                        # Secrets에 설정해둔 토큰과 레포지토리 정보 가져오기
+                        g = Github(st.secrets["GITHUB_TOKEN"])
+                        repo = g.get_repo(st.secrets["REPO_NAME"])
+                        
+                        file_name = uploaded_file.name
+                        content = uploaded_file.getvalue()
+                        
+                        try:
+                            # 1. 기존 파일이 있으면 덮어쓰기 (Update)
+                            contents = repo.get_contents(file_name)
+                            repo.update_file(contents.path, f"Update {file_name} via Dashboard", content, contents.sha)
+                            st.success(f"✅ [{file_name}] 파일 덮어쓰기 성공! 대시보드를 새로고침 해주세요.")
+                            st.cache_data.clear() # 캐시 지우기
+                        except Exception as e:
+                            # 2. 파일이 없으면 새로 만들기 (Create - 예: 2026년 새 파일)
+                            repo.create_file(file_name, f"Create {file_name} via Dashboard", content)
+                            st.success(f"✅ [{file_name}] 신규 업로드 성공! 대시보드를 새로고침 해주세요.")
+                            st.cache_data.clear()
+                            
+                    except Exception as e:
+                        st.error(f"❌ 업로드 실패: {e} (Settings > Secrets에서 토큰과 레포지토리 이름을 확인하세요)")
