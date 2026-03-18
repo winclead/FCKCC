@@ -137,7 +137,7 @@ def load_data(file_path):
 
 df_personal, df_merged, match_data, attendance_dict = load_data(selected_file)
 
-# --- 4. 차트 생성 헬퍼 함수 ---
+# --- 4. 차트 생성 헬퍼 함수 (🔥 줌/드래그 완벽 차단) ---
 def create_top10_chart(df, column, title, color):
     df_temp = df.copy()
     df_temp[column] = pd.to_numeric(df_temp[column], errors='coerce').fillna(0)
@@ -150,11 +150,16 @@ def create_top10_chart(df, column, title, color):
     
     fig = px.bar(df_top10, x=column, y="표시이름", orientation='h', text=column)
     fig.update_traces(marker_color=color, textposition='outside', textfont=dict(color='white', size=13))
+    
+    # 🔥 fixedrange=True 및 dragmode=False 로 모바일 스크롤 터치 꼬임 완벽 방지
     fig.update_layout(
         title=dict(text=title, font=dict(size=18, color='white')),
         template="plotly_dark", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=0, r=20, t=50, b=0), xaxis=dict(showgrid=False, visible=False),
-        yaxis=dict(title="", showgrid=False, tickfont=dict(size=14)), height=400
+        margin=dict(l=0, r=20, t=50, b=0), 
+        xaxis=dict(showgrid=False, visible=False, fixedrange=True),
+        yaxis=dict(title="", showgrid=False, tickfont=dict(size=14), fixedrange=True), 
+        height=400,
+        dragmode=False
     )
     return fig
 
@@ -218,7 +223,8 @@ else:
             
             for i, (col_name, color, title) in enumerate(categories):
                 with cat_tabs[i]:
-                    st.plotly_chart(create_top10_chart(df_merged, col_name, f"{title} Top 10", color), use_container_width=True)
+                    # 🔥 config={'displayModeBar': False} 로 귀찮은 상단 툴바(카메라, 줌버튼) 제거
+                    st.plotly_chart(create_top10_chart(df_merged, col_name, f"{title} Top 10", color), use_container_width=True, config={'displayModeBar': False})
 
             st.divider()
 
@@ -231,6 +237,9 @@ else:
             display_cols = ['이름', '입단년도', '종합 Point', '출전 Point', 'Goal (0.2)', 'Assist (0.2)', 'Balance (0.3)', 'C/S DF (0.2)', 'C/S GK (0.2)']
             df_display = df_merged[display_cols].sort_values(by="종합 Point", ascending=False).reset_index(drop=True)
             df_display.columns = ['선수', '입단', '종합P', '출전P', '⚽골', '🎯도움', '⚖️밸런스', '🛡️DF', '🧤GK']
+            
+            # 🔥 검색 전에 '순위' 열을 맨 앞에 추가 (내 원래 등수를 파악하기 위함)
+            df_display.insert(0, '순위', range(1, len(df_display) + 1))
             
             if search_main:
                 df_display = df_display[df_display['선수'].str.contains(search_main, na=False)]
@@ -295,7 +304,6 @@ else:
                             bals = format_stat_with_highlight(q['Balances'], search_player)
                             cs = format_stat_with_highlight(q['Clean_Sheets'], search_player)
                             
-                            # 🔥 [정렬 완벽 해결] CSS Grid를 활용한 칼각 정렬 로직 적용
                             html_q = f"""
                             <div style="background-color: {bg_color}; padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid {text_color};">
                                 <div style="margin-bottom: 10px;">
