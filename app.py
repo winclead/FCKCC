@@ -158,12 +158,11 @@ def load_data(file_path):
                 score_h = parse_score(safe_iloc(row, 2))
                 score_a = parse_score(safe_iloc(row, 3))
                 
-                # 🔥 확실한 열(Column) 인덱스 매핑 수정 완료!
                 goals = get_players(4, 9)
                 assists = get_players(9, 14)
                 balances = get_players(14, 19)
-                df_cs = get_players(19, 21) # 20, 21번째 열 (T, U열)
-                gk_cs = get_players(21, 22) # 🔥 22번째 열 (V열) 정확하게 타겟팅!
+                df_cs = get_players(19, 21)
+                gk_cs = get_players(21, 22)
                 
                 is_empty = (score_h == "-" and score_a == "-" and not goals and not assists and not balances and not df_cs and not gk_cs)
                 is_header = (str(safe_iloc(row, 2)) == 'Home')
@@ -283,7 +282,7 @@ else:
             
             for i, (col_name, color, title) in enumerate(categories):
                 with cat_tabs[i]:
-                    st.plotly_chart(create_top10_chart(df_merged, col_name, f"{title} Top 10", color), use_container_width=True, config={'displayModeBar': False})
+                    st.plotly_chart(create_top10_chart(df_merged, col_name, f"{title} Top 10", color), width='stretch', config={'displayModeBar': False})
 
             st.divider()
 
@@ -303,13 +302,17 @@ else:
             if search_main:
                 df_display = df_display[df_display['선수'].str.contains(search_main, na=False)]
             
-            # 🔥 에러의 원흉이었던 background_gradient 기능 완전 제거 (물감 필요 없음!)
+            # 🔥 [에러 완벽 방어] 입단년도나 선수이름에 이상한 텍스트가 섞여있어도 표를 그릴 때 충돌하지 않도록 모두 안전한 문자열로 변경
+            df_display['입단'] = df_display['입단'].astype(str)
+            df_display['선수'] = df_display['선수'].astype(str)
+            
             for col in ['종합', '출전']:
                 df_display[col] = pd.to_numeric(df_display[col], errors='coerce').apply(lambda x: f"{x:.2f}")
                 
+            # 최신 버전의 Streamlit 문법 경고 해결을 위해 width='stretch' 사용
             st.dataframe(
                 df_display, 
-                use_container_width=True, hide_index=True, height=500
+                width='stretch', hide_index=True, height=500
             )
 
     with tab_match:
