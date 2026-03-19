@@ -71,7 +71,14 @@ def load_data(file_path):
     try:
         df_personal = pd.read_excel(file_path, sheet_name="개인기록Sheet", skiprows=2).dropna(subset=['이름']).copy()
         df_total_raw = pd.read_excel(file_path, sheet_name="종합Sheet", skiprows=2).dropna(subset=['이름']).copy()
-        df_total_subset = df_total_raw[['이름', '입단년도', '종합 Point', '출전 Point']].copy()
+        
+        # 🔥 방어 코드: 컬럼 이름이 살짝 달라도 에러 나지 않게 처리
+        required_cols = ['이름', '입단년도', '종합 Point', '출전 Point']
+        for c in required_cols:
+            if c not in df_total_raw.columns:
+                df_total_raw[c] = 0
+                
+        df_total_subset = df_total_raw[required_cols].copy()
         df_merged = pd.merge(df_personal, df_total_subset, on='이름', how='left')
         
         attendance_dict = {}
@@ -100,7 +107,6 @@ def load_data(file_path):
             try: return str(int(float(val)))
             except: return val
             
-        # 🔥 Total 자동 계산 방어 로직
         def ensure_total(match):
             has_total = False
             total_q = None
@@ -121,16 +127,14 @@ def load_data(file_path):
                     'Goals': [], 'Assists': [], 'Balances': [], 'DF_CS': [], 'GK_CS': []
                 })
             else:
-                if total_q['ScoreH'] == "-" or total_q['ScoreA'] == "-":
+                if total_q['ScoreH'] == "-" or total_q['ScoreA'] == "-" or total_q['ScoreH'] == "" or total_q['ScoreA'] == "":
                     total_q['ScoreH'] = str(sum_h)
                     total_q['ScoreA'] = str(sum_a)
                     total_q['Score'] = f"{sum_h} : {sum_a}"
 
-        # 🔥 쿼터명 유연화 및 빈 줄 방어 로직
         for index, row in df_match_raw.iterrows():
             col_1 = safe_iloc(row, 1) 
             
-            # 날짜 형식이면 무조건 새 경기 시작
             if re.match(r'^20\d\d-\d{2}-\d{2}', col_1): 
                 if current_match is not None:
                     ensure_total(current_match)
@@ -155,13 +159,12 @@ def load_data(file_path):
                 score_h = parse_score(safe_iloc(row, 2))
                 score_a = parse_score(safe_iloc(row, 3))
                 
+                # 🔥 확실한 열(Column) 인덱스 매핑 (22번째 열 V가 정확히 21번 인덱스!)
                 goals = get_players(4, 9)
                 assists = get_players(9, 14)
                 balances = get_players(14, 19)
-                
-                # 🔥 DF와 GK 분리 (25번째 열이 무조건 GK)
-                df_cs = get_players(19, 25) 
-                gk_cs = get_players(25, 26) 
+                df_cs = get_players(19, 21) # 20, 21번째 열 (T, U열)
+                gk_cs = get_players(21, 22) # 22번째 열 (V열)
                 
                 is_empty = (score_h == "-" and score_a == "-" and not goals and not assists and not balances and not df_cs and not gk_cs)
                 is_header = (str(safe_iloc(row, 2)) == 'Home')
@@ -197,6 +200,7 @@ df_personal, df_merged, match_data, attendance_dict = load_data(selected_file)
 # --- 4. 차트 생성 헬퍼 함수 ---
 def create_top10_chart(df, column, title, color):
     df_temp = df.copy()
+    if column not in df_temp.columns: df_temp[column] = 0
     df_temp[column] = pd.to_numeric(df_temp[column], errors='coerce').fillna(0)
     
     df_top10 = df_temp.nlargest(10, column).reset_index(drop=True)
@@ -242,6 +246,7 @@ else:
     with tab_main:
         st.write("")
         if len(df_merged) > 0:
+            if "종합 Point" not in df_merged.columns: df_merged["종합 Point"] = 0
             top_overall = df_merged.sort_values(by="종합 Point", ascending=False).iloc[0]
             
             r1_col1, r1_col2 = st.columns(2)
@@ -250,6 +255,7 @@ else:
 
             st.write("")
             for col in ['Goal (0.2)', 'Assist (0.2)', 'Balance (0.3)', 'C/S DF (0.2)', 'C/S GK (0.2)']:
+                if col not in df_merged.columns: df_merged[col] = 0
                 df_merged[col] = pd.to_numeric(df_merged[col], errors='coerce').fillna(0)
                 
             t_goal = df_merged.sort_values(by="Goal (0.2)", ascending=False).iloc[0]
@@ -287,6 +293,10 @@ else:
             search_main = st.text_input("🔍 내 기록 찾기 (이름 검색)", placeholder="선수 이름을 입력하세요...", key="search_main")
 
             display_cols = ['이름', '입단년도', '종합 Point', '출전 Point', 'Goal (0.2)', 'Assist (0.2)', 'Balance (0.3)', 'C/S DF (0.2)', 'C/S GK (0.2)']
+            
+            for c in display_cols:
+                if c not in df_merged.columns: df_merged[c] = 0
+                
             df_display = df_merged[display_cols].sort_values(by="종합 Point", ascending=False).reset_index(drop=True)
             df_display.columns = ['선수', '입단', '종합', '출전', '⚽골', '🎯도움', '⚖️밸런스', '🛡️DF', '🧤GK']
             df_display.insert(0, '순위', range(1, len(df_display) + 1))
@@ -336,7 +346,6 @@ else:
             
             for i, match in enumerate(filtered_matches):
                 with cols[i % 2]:
-                    # 🔥 HTML 테이블 방식을 적용하여 세로 길이를 획기적으로 압축!
                     html_content = f"""
                     <div style="background-color: #1A1C24; border-radius: 10px; padding: 12px; border: 1px solid #333344; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
                         <div style="text-align:center; font-weight:700; color:#00D2FF; margin-bottom: 10px; font-size: 1.05rem; border-bottom: 1px solid #2A2D3E; padding-bottom: 6px;">
