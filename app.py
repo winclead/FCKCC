@@ -79,7 +79,7 @@ def load_data(file_path):
                 
         df_total_subset = df_total_raw[required_cols].copy()
         
-        # 🔥 [핵심 해결책] 엔진이 뻗지 않도록 아예 처음부터 글자(str) 타입으로 강제 변환
+        # 엔진 충돌 방지를 위해 처음부터 텍스트(str)로 강제 변환
         df_personal['이름'] = df_personal['이름'].astype(str)
         df_total_subset['이름'] = df_total_subset['이름'].astype(str)
         df_total_subset['입단년도'] = df_total_subset['입단년도'].astype(str)
@@ -288,7 +288,7 @@ else:
             
             for i, (col_name, color, title) in enumerate(categories):
                 with cat_tabs[i]:
-                    st.plotly_chart(create_top10_chart(df_merged, col_name, f"{title} Top 10", color), width='stretch', config={'displayModeBar': False})
+                    st.plotly_chart(create_top10_chart(df_merged, col_name, f"{title} Top 10", color), use_container_width=True, config={'displayModeBar': False})
 
             st.divider()
 
@@ -307,17 +307,16 @@ else:
             
             if search_main:
                 df_display = df_display[df_display['선수'].str.contains(search_main, na=False)]
-        
+            
             for col in ['종합', '출전']:
                 df_display[col] = pd.to_numeric(df_display[col], errors='coerce').apply(lambda x: f"{x:.2f}")
-
-                        # 🔥 (추가된 마법의 코드) 표를 그리기 직전, 모든 데이터를 강제로 글자(String)로 바꿔서 충돌을 원천 차단합니다!
+            
+            # 🔥 표 그리기 엔진 뻗음 방지: 마지막에 모든 칸을 무조건 글자로 바꿔버림
             df_display = df_display.astype(str)
-
                 
             st.dataframe(
                 df_display, 
-                width='stretch', hide_index=True, height=500
+                use_container_width=True, hide_index=True, height=500
             )
 
     with tab_match:
@@ -401,7 +400,8 @@ else:
                         </table>
                     </div>
                     """
-                    st.markdown(html_content, unsafe_allow_html=True)
+                    # 🔥 HTML 마크다운 렌더링 버그 해결: 띄어쓰기와 줄바꿈을 전부 없애서 한 줄로 만듦
+                    st.markdown(html_content.replace('\n', ' '), unsafe_allow_html=True)
 
 # --- 7. 관리자 전용 데이터 업데이트 (엑셀 업로드) ---
 st.divider()
