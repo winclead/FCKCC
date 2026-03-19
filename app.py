@@ -72,7 +72,6 @@ def load_data(file_path):
         df_personal = pd.read_excel(file_path, sheet_name="개인기록Sheet", skiprows=2).dropna(subset=['이름']).copy()
         df_total_raw = pd.read_excel(file_path, sheet_name="종합Sheet", skiprows=2).dropna(subset=['이름']).copy()
         
-        # 🔥 방어 코드: 컬럼 이름이 살짝 달라도 에러 나지 않게 처리
         required_cols = ['이름', '입단년도', '종합 Point', '출전 Point']
         for c in required_cols:
             if c not in df_total_raw.columns:
@@ -159,12 +158,12 @@ def load_data(file_path):
                 score_h = parse_score(safe_iloc(row, 2))
                 score_a = parse_score(safe_iloc(row, 3))
                 
-                # 🔥 확실한 열(Column) 인덱스 매핑 (22번째 열 V가 정확히 21번 인덱스!)
+                # 🔥 확실한 열(Column) 인덱스 매핑 수정 완료!
                 goals = get_players(4, 9)
                 assists = get_players(9, 14)
                 balances = get_players(14, 19)
                 df_cs = get_players(19, 21) # 20, 21번째 열 (T, U열)
-                gk_cs = get_players(21, 22) # 22번째 열 (V열)
+                gk_cs = get_players(21, 22) # 🔥 22번째 열 (V열) 정확하게 타겟팅!
                 
                 is_empty = (score_h == "-" and score_a == "-" and not goals and not assists and not balances and not df_cs and not gk_cs)
                 is_header = (str(safe_iloc(row, 2)) == 'Home')
@@ -304,11 +303,12 @@ else:
             if search_main:
                 df_display = df_display[df_display['선수'].str.contains(search_main, na=False)]
             
+            # 🔥 에러의 원흉이었던 background_gradient 기능 완전 제거 (물감 필요 없음!)
             for col in ['종합', '출전']:
-                df_display[col] = pd.to_numeric(df_display[col], errors='coerce').round(2)
+                df_display[col] = pd.to_numeric(df_display[col], errors='coerce').apply(lambda x: f"{x:.2f}")
                 
             st.dataframe(
-                df_display.style.background_gradient(cmap='Blues_r', subset=['종합']).format({'종합': '{:.2f}', '출전': '{:.2f}'}), 
+                df_display, 
                 use_container_width=True, hide_index=True, height=500
             )
 
