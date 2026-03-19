@@ -307,9 +307,13 @@ else:
             
             if search_main:
                 df_display = df_display[df_display['선수'].str.contains(search_main, na=False)]
-            
+        
             for col in ['종합', '출전']:
                 df_display[col] = pd.to_numeric(df_display[col], errors='coerce').apply(lambda x: f"{x:.2f}")
+
+                        # 🔥 (추가된 마법의 코드) 표를 그리기 직전, 모든 데이터를 강제로 글자(String)로 바꿔서 충돌을 원천 차단합니다!
+            df_display = df_display.astype(str)
+
                 
             st.dataframe(
                 df_display, 
