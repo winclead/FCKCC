@@ -54,15 +54,14 @@ selected_file = year_to_file[selected_year]
 
 with col_title:
     st.title(f"⚽ 김청축 FC Data Analytics ({selected_year})")
-    
-    # 🔥 마지막 업데이트 시간 계산 (해외 서버 기준시간을 한국 KST 시간으로 변환)
-    timestamp = os.path.getmtime(selected_file)
-    dt_utc = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
-    dt_kst = dt_utc.astimezone(datetime.timezone(datetime.timedelta(hours=9)))
-    update_str = dt_kst.strftime("%Y-%m-%d %H:%M")
-    
-    # 제목 아래에 업데이트 시간 표기
-    st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Performance Dashboard &nbsp;|&nbsp; 🔄 Last Updated: {update_str}</span>", unsafe_allow_html=True)
+    try:
+        timestamp = os.path.getmtime(selected_file)
+        dt_utc = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+        dt_kst = dt_utc.astimezone(datetime.timezone(datetime.timedelta(hours=9)))
+        update_str = dt_kst.strftime("%Y-%m-%d %H:%M")
+        st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Performance Dashboard &nbsp;|&nbsp; 🔄 Last Updated: {update_str}</span>", unsafe_allow_html=True)
+    except:
+        st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Performance Dashboard</span>", unsafe_allow_html=True)
 
 # --- 3. 데이터 로딩 및 전처리 함수 ---
 @st.cache_data
@@ -100,21 +99,51 @@ def load_data(file_path):
             if not val or val == 'nan': return "-"
             try: return str(int(float(val)))
             except: return val
+            
+        # 🔥 Total 자동 계산 방어 로직
+        def ensure_total(match):
+            has_total = False
+            total_q = None
+            sum_h = 0
+            sum_a = 0
+            
+            for q in match['Quarters']:
+                if q['Quarter'] == 'Total':
+                    has_total = True
+                    total_q = q
+                else:
+                    if str(q['ScoreH']).isdigit(): sum_h += int(q['ScoreH'])
+                    if str(q['ScoreA']).isdigit(): sum_a += int(q['ScoreA'])
+            
+            if not has_total:
+                match['Quarters'].append({
+                    'Quarter': 'Total', 'ScoreH': str(sum_h), 'ScoreA': str(sum_a), 'Score': f"{sum_h} : {sum_a}",
+                    'Goals': [], 'Assists': [], 'Balances': [], 'DF_CS': [], 'GK_CS': []
+                })
+            else:
+                if total_q['ScoreH'] == "-" or total_q['ScoreA'] == "-":
+                    total_q['ScoreH'] = str(sum_h)
+                    total_q['ScoreA'] = str(sum_a)
+                    total_q['Score'] = f"{sum_h} : {sum_a}"
 
+        # 🔥 쿼터명 유연화 및 빈 줄 방어 로직
         for index, row in df_match_raw.iterrows():
             col_1 = safe_iloc(row, 1) 
             
-            if col_1.startswith('202') or safe_iloc(row, 4) == 'Goal': 
-                date_str = col_1[:10] if col_1.startswith('202') else "날짜 미상"
+            # 날짜 형식이면 무조건 새 경기 시작
+            if re.match(r'^20\d\d-\d{2}-\d{2}', col_1): 
+                if current_match is not None:
+                    ensure_total(current_match)
+                    match_data.append(current_match)
+                
                 current_match = {
-                    'Date': date_str,
+                    'Date': col_1[:10],
                     'Home': safe_iloc(row, 2, 'Home'),
                     'Away': safe_iloc(row, 3, 'Away'),
                     'Quarters': []
                 }
-                match_data.append(current_match)
                 
-            elif col_1 in ['1Q', '2Q', '3Q', '4Q', '5Q', '6Q', 'Total'] and current_match is not None:
+            elif current_match is not None:
                 def get_players(start_idx, end_idx):
                     players = []
                     for i in range(start_idx, end_idx):
@@ -126,17 +155,36 @@ def load_data(file_path):
                 score_h = parse_score(safe_iloc(row, 2))
                 score_a = parse_score(safe_iloc(row, 3))
                 
-                quarter_info = {
-                    'Quarter': col_1,
-                    'Score': f"{score_h} : {score_a}" if score_h != "-" else "-",
-                    'Goals': get_players(4, 9),
-                    'Assists': get_players(9, 14),
-                    'Balances': get_players(14, 19),
-                    'Clean_Sheets': get_players(19, 26)
-                }
+                goals = get_players(4, 9)
+                assists = get_players(9, 14)
+                balances = get_players(14, 19)
                 
-                if quarter_info['Goals'] or quarter_info['Assists'] or quarter_info['Balances'] or quarter_info['Clean_Sheets'] or col_1 == 'Total' or score_h != "-":
-                    current_match['Quarters'].append(quarter_info)
+                # 🔥 DF와 GK 분리 (25번째 열이 무조건 GK)
+                df_cs = get_players(19, 25) 
+                gk_cs = get_players(25, 26) 
+                
+                is_empty = (score_h == "-" and score_a == "-" and not goals and not assists and not balances and not df_cs and not gk_cs)
+                is_header = (str(safe_iloc(row, 2)) == 'Home')
+                
+                if not is_empty and not is_header:
+                    q_name = col_1 if col_1 else f"{len([q for q in current_match['Quarters'] if q['Quarter'] != 'Total']) + 1}Q"
+                    if 'total' in str(q_name).lower():
+                        q_name = 'Total'
+                        
+                    current_match['Quarters'].append({
+                        'Quarter': q_name, 'ScoreH': score_h, 'ScoreA': score_a, 
+                        'Score': f"{score_h} : {score_a}" if score_h != "-" else "-",
+                        'Goals': goals, 'Assists': assists, 'Balances': balances, 'DF_CS': df_cs, 'GK_CS': gk_cs
+                    })
+                    
+                    if q_name == 'Total':
+                        ensure_total(current_match)
+                        match_data.append(current_match)
+                        current_match = None
+
+        if current_match is not None:
+            ensure_total(current_match)
+            match_data.append(current_match)
 
         return df_personal, df_merged, match_data, attendance_dict
     
@@ -166,8 +214,7 @@ def create_top10_chart(df, column, title, color):
         margin=dict(l=0, r=20, t=50, b=0), 
         xaxis=dict(showgrid=False, visible=False, fixedrange=True),
         yaxis=dict(title="", showgrid=False, tickfont=dict(size=14), fixedrange=True), 
-        height=400,
-        dragmode=False
+        height=400, dragmode=False
     )
     return fig
 
@@ -236,15 +283,12 @@ else:
             st.divider()
 
             st.subheader("📋 개인 전체 기록 (Total Database)")
-            
             st.info("💡 **종합 점수 계산식:** 출전 + (Goal × 0.2) + (Assist × 0.2) + (Balance × 0.3) + (DF × 0.2) + (GK × 0.2)")
-            
             search_main = st.text_input("🔍 내 기록 찾기 (이름 검색)", placeholder="선수 이름을 입력하세요...", key="search_main")
 
             display_cols = ['이름', '입단년도', '종합 Point', '출전 Point', 'Goal (0.2)', 'Assist (0.2)', 'Balance (0.3)', 'C/S DF (0.2)', 'C/S GK (0.2)']
             df_display = df_merged[display_cols].sort_values(by="종합 Point", ascending=False).reset_index(drop=True)
             df_display.columns = ['선수', '입단', '종합', '출전', '⚽골', '🎯도움', '⚖️밸런스', '🛡️DF', '🧤GK']
-            
             df_display.insert(0, '순위', range(1, len(df_display) + 1))
             
             if search_main:
@@ -255,14 +299,11 @@ else:
                 
             st.dataframe(
                 df_display.style.background_gradient(cmap='Blues_r', subset=['종합']).format({'종합': '{:.2f}', '출전': '{:.2f}'}), 
-                use_container_width=True, 
-                hide_index=True, 
-                height=500
+                use_container_width=True, hide_index=True, height=500
             )
 
     with tab_match:
         st.subheader("🏟️ 매치 리포트 (Match Records)")
-        
         search_player = st.text_input("🔍 특정 선수 기록 모아보기 (이름 입력)", placeholder="선수 이름을 입력하면 출전한 경기가 필터링되고, 이름이 형광펜으로 칠해집니다.", key="search_match")
         st.write("")
         
@@ -272,7 +313,6 @@ else:
             filtered_matches = []
             for match in reversed(match_data):
                 show_match = False
-                
                 if not search_player:
                     show_match = True
                 else:
@@ -284,7 +324,7 @@ else:
                     
                     if not show_match:
                         for q in match['Quarters']:
-                            all_involved = q['Goals'] + q['Assists'] + q['Balances'] + q['Clean_Sheets']
+                            all_involved = q['Goals'] + q['Assists'] + q['Balances'] + q['DF_CS'] + q['GK_CS']
                             if any(search_player in p for p in all_involved):
                                 show_match = True
                                 break
@@ -296,41 +336,60 @@ else:
             
             for i, match in enumerate(filtered_matches):
                 with cols[i % 2]:
-                    with st.container(border=True):
-                        st.markdown(f"#### 📅 {match['Date']}")
-                        st.markdown(f"**{match['Home']}** ⚔️ **{match['Away']}**")
+                    # 🔥 HTML 테이블 방식을 적용하여 세로 길이를 획기적으로 압축!
+                    html_content = f"""
+                    <div style="background-color: #1A1C24; border-radius: 10px; padding: 12px; border: 1px solid #333344; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                        <div style="text-align:center; font-weight:700; color:#00D2FF; margin-bottom: 10px; font-size: 1.05rem; border-bottom: 1px solid #2A2D3E; padding-bottom: 6px;">
+                            📅 {match['Date']} &nbsp;|&nbsp; <span style="color:#FFF;">{match['Home']}</span> vs <span style="color:#FFF;">{match['Away']}</span>
+                        </div>
+                        <table style="width:100%; text-align:center; font-size:0.85rem; border-collapse: collapse; line-height: 1.3;">
+                            <thead>
+                                <tr style="background-color:#2A2D3E; color:#A0A0B0;">
+                                    <th style="padding:6px 2px; width:10%; border-radius: 4px 0 0 0;">Q</th>
+                                    <th style="padding:6px 2px; width:15%;">Score</th>
+                                    <th style="padding:6px 2px; width:15%;">⚽</th>
+                                    <th style="padding:6px 2px; width:15%;">🎯</th>
+                                    <th style="padding:6px 2px; width:15%;">⚖️</th>
+                                    <th style="padding:6px 2px; width:15%;">🛡️</th>
+                                    <th style="padding:6px 2px; width:15%; border-radius: 0 4px 0 0;">🧤</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    """
+                    
+                    for q in match['Quarters']:
+                        is_total = (q['Quarter'] == 'Total')
+                        row_style = "background-color:#252836; font-weight:bold; color:#FFD700; border-top: 1px solid #444;" if is_total else "border-bottom: 1px solid #2A2D3E;"
                         
-                        for q in match['Quarters']:
-                            is_total = (q['Quarter'] == 'Total')
-                            bg_color = "#2A2D3E" if is_total else "#1E1E2E"
-                            text_color = "#FFD700" if is_total else "#00D2FF"
-                            
-                            goals = format_stat_with_highlight(q['Goals'], search_player)
-                            asts = format_stat_with_highlight(q['Assists'], search_player)
-                            bals = format_stat_with_highlight(q['Balances'], search_player)
-                            cs = format_stat_with_highlight(q['Clean_Sheets'], search_player)
-                            
-                            html_q = f"""
-                            <div style="background-color: {bg_color}; padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid {text_color};">
-                                <div style="margin-bottom: 10px;">
-                                    <strong style="color: {text_color}; font-size:1.1rem;">{q['Quarter']}</strong> 
-                                    <span style="color: #A0A0B0; font-size:1.0rem; margin-left:10px;">Score: {q['Score']}</span>
-                                </div>
-                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); row-gap: 8px; column-gap: 12px; font-size: 0.95rem; line-height: 1.4;">
-                                    <div style="display: flex;"><span style="width:24px; flex-shrink:0;">⚽</span> <span style="flex-grow:1;">{goals}</span></div>
-                                    <div style="display: flex;"><span style="width:24px; flex-shrink:0;">🎯</span> <span style="flex-grow:1;">{asts}</span></div>
-                                    <div style="display: flex;"><span style="width:24px; flex-shrink:0;">⚖️</span> <span style="flex-grow:1;">{bals}</span></div>
-                                    <div style="display: flex;"><span style="width:24px; flex-shrink:0;">🛡️</span> <span style="flex-grow:1;">{cs}</span></div>
-                                </div>
-                            </div>
-                            """
-                            st.markdown(html_q, unsafe_allow_html=True)
+                        goals = format_stat_with_highlight(q['Goals'], search_player)
+                        asts = format_stat_with_highlight(q['Assists'], search_player)
+                        bals = format_stat_with_highlight(q['Balances'], search_player)
+                        df_cs = format_stat_with_highlight(q['DF_CS'], search_player)
+                        gk_cs = format_stat_with_highlight(q['GK_CS'], search_player)
+                        
+                        html_content += f"""
+                                <tr style="{row_style}">
+                                    <td style="padding:6px 2px;">{q['Quarter']}</td>
+                                    <td style="padding:6px 2px;">{q['Score']}</td>
+                                    <td style="padding:6px 2px;">{goals}</td>
+                                    <td style="padding:6px 2px;">{asts}</td>
+                                    <td style="padding:6px 2px;">{bals}</td>
+                                    <td style="padding:6px 2px;">{df_cs}</td>
+                                    <td style="padding:6px 2px; color:#FFA726;">{gk_cs}</td>
+                                </tr>
+                        """
+                        
+                    html_content += """
+                            </tbody>
+                        </table>
+                    </div>
+                    """
+                    st.markdown(html_content, unsafe_allow_html=True)
 
 # --- 7. 관리자 전용 데이터 업데이트 (엑셀 업로드) ---
 st.divider()
 with st.expander("🔒 관리자 전용 메뉴 (데이터 업데이트)"):
     pw_input = st.text_input("관리자 비밀번호를 입력하세요", type="password")
-    
     admin_pw = st.secrets.get("ADMIN_PW", "설정안됨")
     
     if pw_input == admin_pw:
@@ -344,7 +403,6 @@ with st.expander("🔒 관리자 전용 메뉴 (데이터 업데이트)"):
                         from github import Github
                         g = Github(st.secrets["GITHUB_TOKEN"])
                         repo = g.get_repo(st.secrets["REPO_NAME"])
-                        
                         file_name = uploaded_file.name
                         content = uploaded_file.getvalue()
                         
