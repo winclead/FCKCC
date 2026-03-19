@@ -78,6 +78,12 @@ def load_data(file_path):
                 df_total_raw[c] = 0
                 
         df_total_subset = df_total_raw[required_cols].copy()
+        
+        # 🔥 [핵심 해결책] 엔진이 뻗지 않도록 아예 처음부터 글자(str) 타입으로 강제 변환
+        df_personal['이름'] = df_personal['이름'].astype(str)
+        df_total_subset['이름'] = df_total_subset['이름'].astype(str)
+        df_total_subset['입단년도'] = df_total_subset['입단년도'].astype(str)
+        
         df_merged = pd.merge(df_personal, df_total_subset, on='이름', how='left')
         
         attendance_dict = {}
@@ -161,8 +167,8 @@ def load_data(file_path):
                 goals = get_players(4, 9)
                 assists = get_players(9, 14)
                 balances = get_players(14, 19)
-                df_cs = get_players(19, 21)
-                gk_cs = get_players(21, 22)
+                df_cs = get_players(19, 21) 
+                gk_cs = get_players(21, 22) 
                 
                 is_empty = (score_h == "-" and score_a == "-" and not goals and not assists and not balances and not df_cs and not gk_cs)
                 is_header = (str(safe_iloc(row, 2)) == 'Home')
@@ -203,7 +209,7 @@ def create_top10_chart(df, column, title, color):
     
     df_top10 = df_temp.nlargest(10, column).reset_index(drop=True)
     df_top10['Rank'] = df_top10.index + 1
-    df_top10['표시이름'] = df_top10['Rank'].astype(str) + ". " + df_top10['이름']
+    df_top10['표시이름'] = df_top10['Rank'].astype(str) + ". " + df_top10['이름'].astype(str)
     
     df_top10 = df_top10.sort_values(by='Rank', ascending=False)
     
@@ -302,14 +308,9 @@ else:
             if search_main:
                 df_display = df_display[df_display['선수'].str.contains(search_main, na=False)]
             
-            # 🔥 [에러 완벽 방어] 입단년도나 선수이름에 이상한 텍스트가 섞여있어도 표를 그릴 때 충돌하지 않도록 모두 안전한 문자열로 변경
-            df_display['입단'] = df_display['입단'].astype(str)
-            df_display['선수'] = df_display['선수'].astype(str)
-            
             for col in ['종합', '출전']:
                 df_display[col] = pd.to_numeric(df_display[col], errors='coerce').apply(lambda x: f"{x:.2f}")
                 
-            # 최신 버전의 Streamlit 문법 경고 해결을 위해 width='stretch' 사용
             st.dataframe(
                 df_display, 
                 width='stretch', hide_index=True, height=500
