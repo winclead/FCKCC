@@ -236,7 +236,6 @@ def load_data(file_path):
             ensure_total(current_match)
             match_data.append(current_match)
 
-        # 차트용 시계열 데이터 가공
         unique_dates = sorted(list(set(m['Date'] for m in match_data)))
         
         w = {'Goal': 0.2, 'Ast': 0.2, 'Bal': 0.3, 'DF': 0.2, 'GK': 0.2, 'Attd': 1.0}
@@ -262,7 +261,6 @@ def load_data(file_path):
                 add_pts(q['DF_CS'], 'DF')
                 add_pts(q['GK_CS'], 'GK')
 
-        # 팀 평균 일일 트렌드 (Baseline)
         baseline_data = []
         total_p_for_avg = len(df_merged) if len(df_merged) > 0 else 1 
         
@@ -303,24 +301,21 @@ def create_top10_chart(df, column, title, color):
     
     fig = px.bar(df_top10, x=column, y="표시이름", orientation='h', text=column)
     
-    # 🔥 [핵심 보완] cliponaxis=False 설정으로 막대 우측 텍스트가 잘리지 않도록 강제 보호!
     fig.update_traces(marker_color=color, textposition='outside', textfont=dict(color='white', size=13), cliponaxis=False)
     
-    # 🔥 [핵심 보완] 여백을 40% (x 1.4) 넉넉히 주어 모바일에서도 텍스트 공간 완전 확보!
     max_val = df_top10[column].max()
     x_max = max_val * 1.4 if max_val > 0 else 1
 
     fig.update_layout(
         title=dict(text=title, font=dict(size=18, color='white')),
         template="plotly_dark", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=0, r=60, t=50, b=0), # 우측 여백 늘림
+        margin=dict(l=0, r=60, t=50, b=0), 
         xaxis=dict(showgrid=False, visible=False, fixedrange=True, range=[0, x_max]), 
         yaxis=dict(title="", showgrid=False, tickfont=dict(size=14), fixedrange=True), 
         height=400, dragmode=False
     )
     return fig
 
-# --- 5. 검색어 하이라이트 헬퍼 함수 ---
 def format_stat_with_highlight(players_list, search_keyword):
     if not players_list:
         return "<span class='empty-cell'>-</span>"
@@ -392,7 +387,6 @@ else:
             
             search_main = st.text_input("🔍 내 기록 찾기 (이름 검색)", placeholder="선수 이름을 입력하세요...", key="search_main")
 
-            # 🔥 [핵심 보완] 모든 상황(검색 O/X)에서 무조건 '바(Bar) 차트'로 통일 🔥
             if not df_trend_baseline.empty:
                 st.write("")
                 
@@ -406,7 +400,6 @@ else:
                     p_daily = player_daily_points_map[exact_player_searched]
                     indiv_chart_data = []
                     for dt in unique_dates:
-                        # 결석한 날도 0점으로 삽입 (X축 누락 방지)
                         daily_pts = p_daily.get(dt, 0)
                         indiv_chart_data.append({'Date': dt, 'Point': daily_pts})
                     df_chart_final = pd.DataFrame(indiv_chart_data)
@@ -417,9 +410,7 @@ else:
                     bar_color = "#A0A0B0" 
 
                 if not df_chart_final.empty:
-                    # 무조건 바 차트로 렌더링
                     fig_display = px.bar(df_chart_final, x='Date', y='Point', title=chart_title)
-                    
                     fig_display.update_traces(
                         marker_color=bar_color, 
                         hovertemplate="날짜: %{x}<br>포인트: %{y:.2f} P<extra></extra>"
@@ -429,11 +420,11 @@ else:
                         template="plotly_dark", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                         margin=dict(l=10, r=10, t=40, b=10), 
                         height=300, 
-                        # 🔥 X축 전체 기간 category 강제 고정 
                         xaxis=dict(title="", tickformat="%m/%d", showgrid=False, fixedrange=True, type='category', categoryorder='array', categoryarray=unique_dates),
                         yaxis=dict(title="Point", showgrid=True, gridcolor="#2A2D3E", fixedrange=True)
                     )
-                    st.plotly_chart(fig_display, use_container_width=True, config={'displayModeBar': False})
+                    # 🔥 [완벽 해결] 경고가 뜨던 use_container_width=True를 width='stretch'로 변경!
+                    st.plotly_chart(fig_display, width='stretch', config={'displayModeBar': False})
                     
                     if exact_player_searched:
                         st.caption(f"💡 {exact_player_searched} 선수가 해당 일자에 획득한 포인트(출석+스탯) 바 차트입니다. 빈 공간은 미출석일입니다.")
