@@ -18,13 +18,9 @@ st.markdown("""
     [data-testid="stMetricLabel"] { font-size: 1.0rem !important; color: #A0A0B0 !important; }
     [data-testid="stMetricValue"] { font-size: 2.0rem !important; color: #00E676 !important; }
 
-    /* 🔥 [버그 수정] 모바일 화면 미디어 쿼리 최적화 - 수치 잘림 방지 🔥 */
     @media (max-width: 768px) {
-        /* 지표 카드 숫자 크기 축소 */
         [data-testid="stMetricValue"] { font-size: 1.3rem !important; line-height: 1.2 !important; }
-        /* 지표 카드 라벨 크기 축소 */
         [data-testid="stMetricLabel"] { font-size: 0.8rem !important; }
-        /* 메트릭 간격 조정 */
         [data-testid="stMetric"] { padding: 8px !important; }
     }
 
@@ -240,25 +236,20 @@ def load_data(file_path):
             ensure_total(current_match)
             match_data.append(current_match)
 
-        # 🔥 [신규 로직] 차트용 시계열 데이터 가공 🔥
+        # 🔥 차트용 시계열 데이터 가공 (누적 아님, 해당 일자 포인트) 🔥
         unique_dates = sorted(list(set(m['Date'] for m in match_data)))
         
-        # 차트 전용 포인트 가중치 ( illustrative baseline )
         w = {'Goal': 0.2, 'Ast': 0.2, 'Bal': 0.3, 'DF': 0.2, 'GK': 0.2, 'Attd': 1.0}
-        
-        # 선수별 날짜별 점수 맵 생성 { 선수명: { 날짜: 점수 } }
         player_daily_points_map = {}
         
-        # 1. 출석 점수 pre-populate
         for p, attended_dates in attendance_dict.items():
             for dt in attended_dates:
                 player_daily_points_map.setdefault(p, {})[dt] = w['Attd']
         
-        # 2. 경기 기록 스탯 점수 합산
         for match in match_data:
             dt = match['Date']
             for q in match['Quarters']:
-                if q['Quarter'] == 'Total': continue # 스탯 더블 카운팅 방지
+                if q['Quarter'] == 'Total': continue 
                 
                 def add_pts(plist, w_key):
                     for p in plist:
@@ -271,19 +262,17 @@ def load_data(file_path):
                 add_pts(q['DF_CS'], 'DF')
                 add_pts(q['GK_CS'], 'GK')
 
-        # 팀 평균 누적 트렌드 (Baseline) 계산
+        # 팀 평균 일일 트렌드 (Baseline)
         baseline_data = []
-        cumulative_team_avg = 0
-        total_p_for_avg = len(df_merged) if len(df_merged) > 0 else 1 # 방어 로직
+        total_p_for_avg = len(df_merged) if len(df_merged) > 0 else 1 
         
         for dt in unique_dates:
             daily_total_team_pts = 0
             for p_pts_dict in player_daily_points_map.values():
-                daily_total_team_pts += p_pts_dict.get(dt, 0) # 해당 날짜 점수 없으면 0
+                daily_total_team_pts += p_pts_dict.get(dt, 0) 
             
             daily_avg = daily_total_team_pts / total_p_for_avg
-            cumulative_team_avg += daily_avg
-            baseline_data.append({'Date': dt, 'Point': cumulative_team_avg})
+            baseline_data.append({'Date': dt, 'Point': daily_avg})
             
         df_trend_baseline = pd.DataFrame(baseline_data)
 
@@ -293,11 +282,9 @@ def load_data(file_path):
         st.error(f"데이터를 읽는 중 오류가 발생했습니다: {e}")
         return None, None, None, None, None, None, None
 
-# 데이터 로딩 실행
 res_load = load_data(selected_file)
 df_personal, df_merged, match_data, attendance_dict = res_load[0:4]
 
-# 신규 리턴 변수 방어 처리 (오래된 캐시 대응)
 unique_dates, player_daily_points_map, df_trend_baseline = [], {}, pd.DataFrame()
 if res_load and len(res_load) > 4:
     unique_dates, player_daily_points_map, df_trend_baseline = res_load[4:]
@@ -317,11 +304,15 @@ def create_top10_chart(df, column, title, color):
     fig = px.bar(df_top10, x=column, y="표시이름", orientation='h', text=column)
     fig.update_traces(marker_color=color, textposition='outside', textfont=dict(color='white', size=13))
     
+    # 🔥 [수정] 1등 막대 수치 잘림 방지를 위해 X축 최댓값 강제 20% 늘림 & 오른쪽 여백(r) 확보
+    max_val = df_top10[column].max()
+    x_max = max_val * 1.25 if max_val > 0 else 1
+
     fig.update_layout(
         title=dict(text=title, font=dict(size=18, color='white')),
         template="plotly_dark", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=0, r=20, t=50, b=0), 
-        xaxis=dict(showgrid=False, visible=False, fixedrange=True),
+        margin=dict(l=0, r=50, t=50, b=0), # 여백 확보
+        xaxis=dict(showgrid=False, visible=False, fixedrange=True, range=[0, x_max]), # 강제 스케일 늘림
         yaxis=dict(title="", showgrid=False, tickfont=dict(size=14), fixedrange=True), 
         height=400, dragmode=False
     )
@@ -352,12 +343,10 @@ else:
         st.write("")
         if len(df_merged) > 0:
             if "종합 Point" not in df_merged.columns: df_merged["종합 Point"] = 0
-            # NaN 방어 및 정렬
             df_merged["종합 Point"] = pd.to_numeric(df_merged["종합 Point"], errors='coerce').fillna(0)
             top_overall = df_merged.sort_values(by="종합 Point", ascending=False).iloc[0]
             
             r1_col1, r1_col2 = st.columns(2)
-            #👥 아이콘 크기 통일
             r1_col1.metric("👥 Total Players", f"{len(df_merged)} 명")
             r1_col2.metric("🏆 Overall 1st", f"{top_overall['이름']}", f"{round(top_overall['종합 Point'], 2)} P")
 
@@ -373,7 +362,6 @@ else:
             t_csgk = df_merged.sort_values(by="C/S GK (0.2)", ascending=False).iloc[0]
 
             r2_col1, r2_col2, r2_col3, r2_col4, r2_col5 = st.columns(5)
-            # 모바일 수치 잘림 방지 스타일 적용
             r2_col1.metric("⚽ Goal 1st", f"{t_goal['이름']}", f"{int(t_goal['Goal (0.2)'])} 골")
             r2_col2.metric("🎯 Assist 1st", f"{t_assist['이름']}", f"{int(t_assist['Assist (0.2)'])} 도움")
             r2_col3.metric("⚖️ Balance 1st", f"{t_bal['이름']}", f"{int(t_bal['Balance (0.3)'])} 개")
@@ -400,66 +388,57 @@ else:
             st.subheader("📋 개인 전체 기록 (Total Database)")
             st.info("💡 **종합 점수 계산식:** 출전 + (Goal × 0.2) + (Assist × 0.2) + (Balance × 0.3) + (DF × 0.2) + (GK × 0.2)")
             
-            # 검색창
             search_main = st.text_input("🔍 내 기록 찾기 (이름 검색)", placeholder="선수 이름을 입력하세요...", key="search_main")
 
-            # 🔥 [신규 기능] 퍼포먼스 트렌드 누적 차트 🔥
             if not df_trend_baseline.empty:
                 st.write("")
                 
-                # 검색된 선수명이 유효한지 확인
                 exact_player_searched = None
                 p_search_trimmed = search_main.strip() if search_main else ""
                 if p_search_trimmed and p_search_trimmed in player_daily_points_map:
                     exact_player_searched = p_search_trimmed
                 
-                # 차트 제목 설정
-                chart_title = f"📈 시즌 누적 퍼포먼스 트렌드"
+                # 🔥 [수정] 차트 제목 변경
                 if exact_player_searched:
-                    chart_title = f"📈 {exact_player_searched} 선수 누적 퍼포먼스 곡선"
+                    chart_title = f"📈 {exact_player_searched} 선수 일일 획득 포인트"
                 else:
-                    chart_title = "📈 팀 누적 평균 퍼포먼스 (Baseline)"
+                    chart_title = "📈 팀 평균 일일 획득 포인트 (Baseline)"
 
-                # 차트 데이터 준비
+                # 🔥 [수정] 누적이 아닌 당일 포인트만 리스트업
                 if exact_player_searched:
-                    # 개인 차트 데이터 생성
                     p_daily = player_daily_points_map[exact_player_searched]
-                    indiv_cumulative_pts = 0
                     indiv_chart_data = []
                     for dt in unique_dates:
-                        indiv_cumulative_pts += p_daily.get(dt, 0)
-                        indiv_chart_data.append({'Date': dt, 'Point': indiv_cumulative_pts})
+                        daily_pts = p_daily.get(dt, 0)
+                        indiv_chart_data.append({'Date': dt, 'Point': daily_pts})
                     df_chart_final = pd.DataFrame(indiv_chart_data)
-                    line_color = "#00D2FF" # 개인 곡선 색상
+                    line_color = "#00D2FF" 
                     line_dash = 'solid'
                 else:
-                    # 기본 베이스라인 차트 데이터
                     df_chart_final = df_trend_baseline
-                    line_color = "#A0A0B0" # 베이스라인 색상 (회색조)
-                    line_dash = 'dash' # 점선 처리
+                    line_color = "#A0A0B0" 
+                    line_dash = 'dash' 
 
                 if not df_chart_final.empty:
                     fig_line = px.line(df_chart_final, x='Date', y='Point', title=chart_title, markers=True)
-                    fig_line.update_traces(line_color=line_color, line_dash=line_dash, hovertemplate="날짜: %{x}<br>누적점수: %{y:.2f} P<extra></extra>")
+                    fig_line.update_traces(line_color=line_color, line_dash=line_dash, hovertemplate="날짜: %{x}<br>획득점수: %{y:.2f} P<extra></extra>")
                     
-                    # 레이아웃 스타일링 (모바일 반응형 고려)
                     fig_line.update_layout(
                         template="plotly_dark", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                        margin=dict(l=10, r=10, t=40, b=10), # 여백 최소화
-                        height=300, # 모바일에서 너무 크지 않게 적당한 높이
-                        xaxis=dict(title="", tickformat="%m/%d", showgrid=False, fixedrange=True),
+                        margin=dict(l=10, r=10, t=40, b=10), 
+                        height=300, 
+                        # 🔥 [수정] X축 카테고리 고정 (모든 경기 날짜가 빠짐없이 노출됨)
+                        xaxis=dict(title="", tickformat="%m/%d", showgrid=False, fixedrange=True, type='category', categoryorder='array', categoryarray=unique_dates),
                         yaxis=dict(title="Point", showgrid=True, gridcolor="#2A2D3E", fixedrange=True)
                     )
                     st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': False})
                     
-                    # 안내 문구
                     if exact_player_searched:
-                        st.caption(f"💡 {exact_player_searched} 선수의 매 경기 퍼포먼스 점수(출석+스탯 가중치) 누적 곡선입니다.")
+                        st.caption(f"💡 {exact_player_searched} 선수가 해당 일자에 획득한 포인트(출석+스탯 가중치)입니다.")
                     else:
-                        st.caption("💡 점선은 팀 전체의 누적 평균 트렌드입니다. 이름을 검색하면 해당 선수의 개별 퍼포먼스 곡선으로 바뀝니다. (가중치: 출석=1.0, G/A/DF/GK=0.2, B=0.3)")
+                        st.caption("💡 점선은 팀 전체의 평균 획득 포인트 트렌드입니다. 이름을 검색하면 해당 선수의 획득 포인트로 바뀝니다.")
                 st.write("")
 
-            # 전체 기록 표
             display_cols = ['이름', '입단년도', '종합 Point', '출전 Point', 'Goal (0.2)', 'Assist (0.2)', 'Balance (0.3)', 'C/S DF (0.2)', 'C/S GK (0.2)']
             
             for c in display_cols:
@@ -469,7 +448,6 @@ else:
             df_display.columns = ['선수', '입단', '종합', '출전', '⚽골', '🎯도움', '⚖️밸런스', '🛡️DF', '🧤GK']
             df_display.insert(0, '순위', range(1, len(df_display) + 1))
             
-            # 표 내부 검색 필터링
             if search_main:
                 df_display = df_display[df_display['선수'].str.contains(search_main, na=False)]
             
@@ -510,7 +488,6 @@ else:
                 if show_match:
                     filtered_matches.append(match)
 
-            # Row 단위로 2개씩 묶어서 출력 (웹/모바일 반응형 정렬 유지)
             for i in range(0, len(filtered_matches), 2):
                 cols = st.columns(2)
                 for j in range(2):
