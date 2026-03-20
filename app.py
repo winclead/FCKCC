@@ -59,9 +59,9 @@ with col_title:
         dt_utc = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
         dt_kst = dt_utc.astimezone(datetime.timezone(datetime.timedelta(hours=9)))
         update_str = dt_kst.strftime("%Y-%m-%d %H:%M")
-        st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Performance Dashboard &nbsp;|&nbsp; 🔄 Last Updated: {update_str}</span>", unsafe_allow_html=True)
+        st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Dashboard &nbsp;|&nbsp; 🔄 Last Updated: {update_str}</span>", unsafe_allow_html=True)
     except:
-        st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Performance Dashboard</span>", unsafe_allow_html=True)
+        st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Dashboard</span>", unsafe_allow_html=True)
 
 # --- 3. 데이터 로딩 및 전처리 함수 ---
 @st.cache_data
@@ -78,16 +78,13 @@ def load_data(file_path):
                 df_total_raw[c] = 0
                 
         df_total_subset = df_total_raw[required_cols].copy()
-        
         df_personal['이름'] = df_personal['이름'].astype(str)
         df_total_subset['이름'] = df_total_subset['이름'].astype(str)
         df_total_subset['입단년도'] = df_total_subset['입단년도'].astype(str)
-        
         df_merged = pd.merge(df_personal, df_total_subset, on='이름', how='left')
         
         attendance_dict = {}
         date_cols = [c for c in df_total_raw.columns if re.match(r'^202\d-\d{2}-\d{2}', str(c))]
-        
         for index, row in df_total_raw.iterrows():
             p_name = str(row['이름']).strip()
             attended_dates = set()
@@ -99,35 +96,7 @@ def load_data(file_path):
         df_match_raw = pd.read_excel(file_path, sheet_name="경기기록Sheet", header=None)
         match_data = []
         current_match = None
-        
-        # 🔥 [핵심 로직] 엑셀의 맨 위쪽 헤더를 스캔해서 어느 열이 어떤 역할인지 지능적으로 파악
-        col_mapping = [None] * 100 
-        found_header = False
-        for idx, row in df_match_raw.head(10).iterrows():
-            row_strs = [str(v).lower().replace(' ', '') for v in row.values]
-            if any('goal' in v for v in row_strs) and any('assist' in v for v in row_strs):
-                found_header = True
-                current_category = None
-                for i, val in enumerate(row.values):
-                    val_str = str(val).lower().replace(' ', '')
-                    if val_str not in ['nan', 'none', '']:
-                        if 'goal' in val_str: current_category = 'Goal'
-                        elif 'assist' in val_str: current_category = 'Assist'
-                        elif 'balance' in val_str or 'bal' in val_str: current_category = 'Balance'
-                        elif 'df' in val_str: current_category = 'DF_CS'
-                        elif 'gk' in val_str: current_category = 'GK_CS'
-                        else: current_category = None
-                    if i < len(col_mapping):
-                        col_mapping[i] = current_category
-                break
-        
-        # 헤더를 못 찾았을 때를 대비한 기본값 (V21 사진 기준)
-        if not found_header:
-            for i in range(4, 10): col_mapping[i] = 'Goal'
-            for i in range(10, 16): col_mapping[i] = 'Assist'
-            for i in range(16, 22): col_mapping[i] = 'Balance'
-            for i in range(22, 27): col_mapping[i] = 'DF_CS'
-            for i in range(27, 29): col_mapping[i] = 'GK_CS'
+        current_quarter = None
 
         def safe_iloc(row_data, idx, default=""):
             if idx < len(row_data):
@@ -136,15 +105,26 @@ def load_data(file_path):
             return default
 
         def parse_score(val):
-            if not val or val == 'nan': return "-"
+            if not val or str(val).lower() in ['nan', 'none', '-']: return "-"
             try: return str(int(float(val)))
-            except: return val
+            except: return str(val).strip()
             
+        def get_players(row_data, start_idx, end_idx):
+            players = []
+            for i in range(start_idx, end_idx):
+                if i < len(row_data):
+                    p = str(row_data.iloc[i]).strip()
+                    if p and p.lower() not in ['nan', 'none', '-', '', 'nan.0']:
+                        players.append(p)
+            return players
+
+        # 🔥 규칙 9: Total Score 합산 로직
         def ensure_total(match):
             has_total = False
             total_q = None
             sum_h = 0
             sum_a = 0
+            
             for q in match['Quarters']:
                 if q['Quarter'] == 'Total':
                     has_total = True
@@ -164,58 +144,91 @@ def load_data(file_path):
                     total_q['ScoreA'] = str(sum_a)
                     total_q['Score'] = f"{sum_h} : {sum_a}"
 
+        # 🔥 작성해주신 9대 규칙을 완벽하게 적용한 경기 데이터 파싱 로직
         for index, row in df_match_raw.iterrows():
-            col_1 = safe_iloc(row, 1) 
+            col_1 = safe_iloc(row, 1) # B열 (날짜, 쿼터, Total)
+            col_1_lower = col_1.lower()
             
+            # 규칙 1: 날짜 포맷이면 새 경기 생성
             if re.match(r'^20\d\d-\d{2}-\d{2}', col_1): 
                 if current_match is not None:
                     ensure_total(current_match)
                     match_data.append(current_match)
                 
+                # 규칙 2: C열, D열에서 팀명 추출
                 current_match = {
                     'Date': col_1[:10],
                     'Home': safe_iloc(row, 2, 'Home'),
                     'Away': safe_iloc(row, 3, 'Away'),
                     'Quarters': []
                 }
+                current_quarter = None
+                continue
                 
-            elif current_match is not None:
-                score_h = parse_score(safe_iloc(row, 2))
-                score_a = parse_score(safe_iloc(row, 3))
+            if current_match is None: continue
                 
-                goals, assists, balances, df_cs, gk_cs = [], [], [], [], []
+            # 쓰레기 값(헤더 행 등) 무시 처리
+            val_c = str(safe_iloc(row, 2)).strip().lower()
+            val_e = str(safe_iloc(row, 4)).strip().lower()
+            if val_c == 'home' or val_c == 'score' or 'goal' in val_e or 'assist' in val_e:
+                continue
                 
-                # 🔥 스캔해둔 동적 매핑(col_mapping)을 활용해 기록 분류
-                for i in range(4, len(row)):
-                    cat = col_mapping[i] if i < len(col_mapping) else None
-                    p = str(row.iloc[i]).strip()
-                    
-                    # 🔥 보기 싫던 nan과 빈칸 원천 차단
-                    if p and p.lower() not in ['nan', 'none', '-', '', 'nan.0']:
-                        if cat == 'Goal': goals.append(p)
-                        elif cat == 'Assist': assists.append(p)
-                        elif cat == 'Balance': balances.append(p)
-                        elif cat == 'DF_CS': df_cs.append(p)
-                        elif cat == 'GK_CS': gk_cs.append(p)
+            # 규칙 2~7: 지정된 열(Column) 구역에서 선수 이름 싹쓸이!
+            score_h = parse_score(safe_iloc(row, 2))
+            score_a = parse_score(safe_iloc(row, 3))
+            
+            goals = get_players(row, 4, 8)       # E~H (4, 5, 6, 7)
+            assists = get_players(row, 8, 12)    # I~L (8, 9, 10, 11)
+            balances = get_players(row, 12, 16)  # M~P (12, 13, 14, 15)
+            df_cs = get_players(row, 16, 21)     # Q~U (16, 17, 18, 19, 20)
+            gk_cs = get_players(row, 21, 22)     # V (21)
+            
+            is_empty_stats = (not goals and not assists and not balances and not df_cs and not gk_cs)
+            is_empty_scores = (score_h == "-" and score_a == "-")
+            
+            # 규칙 8: 경기 기록 간 빈칸 및 잉여 행 무시
+            if is_empty_stats and is_empty_scores and col_1 == '': continue
                 
-                is_empty = (score_h == "-" and score_a == "-" and not goals and not assists and not balances and not df_cs and not gk_cs)
-                is_header = (str(safe_iloc(row, 2)).lower() == 'home' or 'goal' in str(safe_iloc(row, 4)).lower())
-                
-                if not is_empty and not is_header:
-                    q_name = col_1 if col_1 else f"{len([q for q in current_match['Quarters'] if q['Quarter'] != 'Total']) + 1}Q"
-                    if 'total' in str(q_name).lower():
-                        q_name = 'Total'
-                        
+            # 규칙 1 & 2: 쿼터 행이 1줄이든 2줄이든, 빈칸이든 완벽하게 이어붙이는 핵심 로직
+            is_total_row = False
+            if 'total' in col_1_lower:
+                q_name = 'Total'
+                is_total_row = True
+            elif col_1 != '' and col_1_lower not in ['nan', 'none', '-']:
+                q_name = col_1
+            else:
+                q_name = current_quarter['Quarter'] if current_quarter else f"{len([q for q in current_match['Quarters'] if q['Quarter'] != 'Total']) + 1}Q"
+
+            if is_total_row:
+                existing_t = next((q for q in current_match['Quarters'] if q['Quarter'] == 'Total'), None)
+                if existing_t:
+                    existing_t['Goals'].extend(goals); existing_t['Assists'].extend(assists); existing_t['Balances'].extend(balances); existing_t['DF_CS'].extend(df_cs); existing_t['GK_CS'].extend(gk_cs)
+                    if existing_t['ScoreH'] == "-" and score_h != "-": existing_t['ScoreH'] = score_h
+                    if existing_t['ScoreA'] == "-" and score_a != "-": existing_t['ScoreA'] = score_a
+                    existing_t['Score'] = f"{existing_t['ScoreH']} : {existing_t['ScoreA']}" if existing_t['ScoreH'] != "-" else "-"
+                else:
                     current_match['Quarters'].append({
-                        'Quarter': q_name, 'ScoreH': score_h, 'ScoreA': score_a, 
+                        'Quarter': 'Total', 'ScoreH': score_h, 'ScoreA': score_a, 
                         'Score': f"{score_h} : {score_a}" if score_h != "-" else "-",
                         'Goals': goals, 'Assists': assists, 'Balances': balances, 'DF_CS': df_cs, 'GK_CS': gk_cs
                     })
-                    
-                    if q_name == 'Total':
-                        ensure_total(current_match)
-                        match_data.append(current_match)
-                        current_match = None
+                current_quarter = None 
+            else:
+                existing_q = next((q for q in current_match['Quarters'] if q['Quarter'] == q_name), None)
+                if existing_q:
+                    existing_q['Goals'].extend(goals); existing_q['Assists'].extend(assists); existing_q['Balances'].extend(balances); existing_q['DF_CS'].extend(df_cs); existing_q['GK_CS'].extend(gk_cs)
+                    if existing_q['ScoreH'] == "-" and score_h != "-": existing_q['ScoreH'] = score_h
+                    if existing_q['ScoreA'] == "-" and score_a != "-": existing_q['ScoreA'] = score_a
+                    existing_q['Score'] = f"{existing_q['ScoreH']} : {existing_q['ScoreA']}" if existing_q['ScoreH'] != "-" else "-"
+                    current_quarter = existing_q
+                else:
+                    new_q = {
+                        'Quarter': q_name, 'ScoreH': score_h, 'ScoreA': score_a, 
+                        'Score': f"{score_h} : {score_a}" if score_h != "-" else "-",
+                        'Goals': goals, 'Assists': assists, 'Balances': balances, 'DF_CS': df_cs, 'GK_CS': gk_cs
+                    }
+                    current_match['Quarters'].append(new_q)
+                    current_quarter = new_q
 
         if current_match is not None:
             ensure_total(current_match)
@@ -341,10 +354,7 @@ else:
             
             df_display = df_display.astype(str)
                 
-            st.dataframe(
-                df_display, 
-                width='stretch', hide_index=True, height=500
-            )
+            st.dataframe(df_display, width='stretch', hide_index=True, height=500)
 
     with tab_match:
         st.subheader("🏟️ 매치 리포트 (Match Records)")
@@ -427,7 +437,6 @@ else:
                         </table>
                     </div>
                     """
-                    # 🔥 마크다운 버그 원천 봉쇄: 띄어쓰기 압축
                     st.markdown(html_content.replace('\n', ' '), unsafe_allow_html=True)
 
 # --- 7. 관리자 전용 데이터 업데이트 (엑셀 업로드) ---
