@@ -79,7 +79,6 @@ def load_data(file_path):
                 
         df_total_subset = df_total_raw[required_cols].copy()
         
-        # 엔진 충돌 방지를 위해 처음부터 텍스트(str)로 강제 변환
         df_personal['이름'] = df_personal['이름'].astype(str)
         df_total_subset['이름'] = df_total_subset['이름'].astype(str)
         df_total_subset['입단년도'] = df_total_subset['입단년도'].astype(str)
@@ -101,6 +100,35 @@ def load_data(file_path):
         match_data = []
         current_match = None
         
+        # 🔥 [핵심 로직] 엑셀의 맨 위쪽 헤더를 스캔해서 어느 열이 어떤 역할인지 지능적으로 파악
+        col_mapping = [None] * 100 
+        found_header = False
+        for idx, row in df_match_raw.head(10).iterrows():
+            row_strs = [str(v).lower().replace(' ', '') for v in row.values]
+            if any('goal' in v for v in row_strs) and any('assist' in v for v in row_strs):
+                found_header = True
+                current_category = None
+                for i, val in enumerate(row.values):
+                    val_str = str(val).lower().replace(' ', '')
+                    if val_str not in ['nan', 'none', '']:
+                        if 'goal' in val_str: current_category = 'Goal'
+                        elif 'assist' in val_str: current_category = 'Assist'
+                        elif 'balance' in val_str or 'bal' in val_str: current_category = 'Balance'
+                        elif 'df' in val_str: current_category = 'DF_CS'
+                        elif 'gk' in val_str: current_category = 'GK_CS'
+                        else: current_category = None
+                    if i < len(col_mapping):
+                        col_mapping[i] = current_category
+                break
+        
+        # 헤더를 못 찾았을 때를 대비한 기본값 (V21 사진 기준)
+        if not found_header:
+            for i in range(4, 10): col_mapping[i] = 'Goal'
+            for i in range(10, 16): col_mapping[i] = 'Assist'
+            for i in range(16, 22): col_mapping[i] = 'Balance'
+            for i in range(22, 27): col_mapping[i] = 'DF_CS'
+            for i in range(27, 29): col_mapping[i] = 'GK_CS'
+
         def safe_iloc(row_data, idx, default=""):
             if idx < len(row_data):
                 val = row_data.iloc[idx]
@@ -117,7 +145,6 @@ def load_data(file_path):
             total_q = None
             sum_h = 0
             sum_a = 0
-            
             for q in match['Quarters']:
                 if q['Quarter'] == 'Total':
                     has_total = True
@@ -153,25 +180,26 @@ def load_data(file_path):
                 }
                 
             elif current_match is not None:
-                def get_players(start_idx, end_idx):
-                    players = []
-                    for i in range(start_idx, end_idx):
-                        p = safe_iloc(row, i)
-                        if p and p not in ['nan', '-']:
-                            players.append(p)
-                    return players
-                
                 score_h = parse_score(safe_iloc(row, 2))
                 score_a = parse_score(safe_iloc(row, 3))
                 
-                goals = get_players(4, 9)
-                assists = get_players(9, 14)
-                balances = get_players(14, 19)
-                df_cs = get_players(19, 21) 
-                gk_cs = get_players(21, 22) 
+                goals, assists, balances, df_cs, gk_cs = [], [], [], [], []
+                
+                # 🔥 스캔해둔 동적 매핑(col_mapping)을 활용해 기록 분류
+                for i in range(4, len(row)):
+                    cat = col_mapping[i] if i < len(col_mapping) else None
+                    p = str(row.iloc[i]).strip()
+                    
+                    # 🔥 보기 싫던 nan과 빈칸 원천 차단
+                    if p and p.lower() not in ['nan', 'none', '-', '', 'nan.0']:
+                        if cat == 'Goal': goals.append(p)
+                        elif cat == 'Assist': assists.append(p)
+                        elif cat == 'Balance': balances.append(p)
+                        elif cat == 'DF_CS': df_cs.append(p)
+                        elif cat == 'GK_CS': gk_cs.append(p)
                 
                 is_empty = (score_h == "-" and score_a == "-" and not goals and not assists and not balances and not df_cs and not gk_cs)
-                is_header = (str(safe_iloc(row, 2)) == 'Home')
+                is_header = (str(safe_iloc(row, 2)).lower() == 'home' or 'goal' in str(safe_iloc(row, 4)).lower())
                 
                 if not is_empty and not is_header:
                     q_name = col_1 if col_1 else f"{len([q for q in current_match['Quarters'] if q['Quarter'] != 'Total']) + 1}Q"
@@ -288,7 +316,7 @@ else:
             
             for i, (col_name, color, title) in enumerate(categories):
                 with cat_tabs[i]:
-                    st.plotly_chart(create_top10_chart(df_merged, col_name, f"{title} Top 10", color), use_container_width=True, config={'displayModeBar': False})
+                    st.plotly_chart(create_top10_chart(df_merged, col_name, f"{title} Top 10", color), width='stretch', config={'displayModeBar': False})
 
             st.divider()
 
@@ -311,12 +339,11 @@ else:
             for col in ['종합', '출전']:
                 df_display[col] = pd.to_numeric(df_display[col], errors='coerce').apply(lambda x: f"{x:.2f}")
             
-            # 🔥 표 그리기 엔진 뻗음 방지: 마지막에 모든 칸을 무조건 글자로 바꿔버림
             df_display = df_display.astype(str)
                 
             st.dataframe(
                 df_display, 
-                use_container_width=True, hide_index=True, height=500
+                width='stretch', hide_index=True, height=500
             )
 
     with tab_match:
@@ -400,7 +427,7 @@ else:
                         </table>
                     </div>
                     """
-                    # 🔥 HTML 마크다운 렌더링 버그 해결: 띄어쓰기와 줄바꿈을 전부 없애서 한 줄로 만듦
+                    # 🔥 마크다운 버그 원천 봉쇄: 띄어쓰기 압축
                     st.markdown(html_content.replace('\n', ' '), unsafe_allow_html=True)
 
 # --- 7. 관리자 전용 데이터 업데이트 (엑셀 업로드) ---
