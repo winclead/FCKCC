@@ -118,7 +118,6 @@ def load_data(file_path):
                         players.append(p)
             return players
 
-        # 🔥 규칙 9: Total Score 합산 로직
         def ensure_total(match):
             has_total = False
             total_q = None
@@ -144,18 +143,15 @@ def load_data(file_path):
                     total_q['ScoreA'] = str(sum_a)
                     total_q['Score'] = f"{sum_h} : {sum_a}"
 
-        # 🔥 작성해주신 9대 규칙을 완벽하게 적용한 경기 데이터 파싱 로직
         for index, row in df_match_raw.iterrows():
-            col_1 = safe_iloc(row, 1) # B열 (날짜, 쿼터, Total)
+            col_1 = safe_iloc(row, 1)
             col_1_lower = col_1.lower()
             
-            # 규칙 1: 날짜 포맷이면 새 경기 생성
             if re.match(r'^20\d\d-\d{2}-\d{2}', col_1): 
                 if current_match is not None:
                     ensure_total(current_match)
                     match_data.append(current_match)
                 
-                # 규칙 2: C열, D열에서 팀명 추출
                 current_match = {
                     'Date': col_1[:10],
                     'Home': safe_iloc(row, 2, 'Home'),
@@ -167,29 +163,25 @@ def load_data(file_path):
                 
             if current_match is None: continue
                 
-            # 쓰레기 값(헤더 행 등) 무시 처리
             val_c = str(safe_iloc(row, 2)).strip().lower()
             val_e = str(safe_iloc(row, 4)).strip().lower()
             if val_c == 'home' or val_c == 'score' or 'goal' in val_e or 'assist' in val_e:
                 continue
                 
-            # 규칙 2~7: 지정된 열(Column) 구역에서 선수 이름 싹쓸이!
             score_h = parse_score(safe_iloc(row, 2))
             score_a = parse_score(safe_iloc(row, 3))
             
-            goals = get_players(row, 4, 8)       # E~H (4, 5, 6, 7)
-            assists = get_players(row, 8, 12)    # I~L (8, 9, 10, 11)
-            balances = get_players(row, 12, 16)  # M~P (12, 13, 14, 15)
-            df_cs = get_players(row, 16, 21)     # Q~U (16, 17, 18, 19, 20)
-            gk_cs = get_players(row, 21, 22)     # V (21)
+            goals = get_players(row, 4, 8)       
+            assists = get_players(row, 8, 12)    
+            balances = get_players(row, 12, 16)  
+            df_cs = get_players(row, 16, 21)     
+            gk_cs = get_players(row, 21, 22)     
             
             is_empty_stats = (not goals and not assists and not balances and not df_cs and not gk_cs)
             is_empty_scores = (score_h == "-" and score_a == "-")
             
-            # 규칙 8: 경기 기록 간 빈칸 및 잉여 행 무시
             if is_empty_stats and is_empty_scores and col_1 == '': continue
                 
-            # 규칙 1 & 2: 쿼터 행이 1줄이든 2줄이든, 빈칸이든 완벽하게 이어붙이는 핵심 로직
             is_total_row = False
             if 'total' in col_1_lower:
                 q_name = 'Total'
@@ -386,58 +378,61 @@ else:
                 if show_match:
                     filtered_matches.append(match)
 
-            cols = st.columns(2)
-            
-            for i, match in enumerate(filtered_matches):
-                with cols[i % 2]:
-                    html_content = f"""
-                    <div style="background-color: #1A1C24; border-radius: 10px; padding: 12px; border: 1px solid #333344; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-                        <div style="text-align:center; font-weight:700; color:#00D2FF; margin-bottom: 10px; font-size: 1.05rem; border-bottom: 1px solid #2A2D3E; padding-bottom: 6px;">
-                            📅 {match['Date']} &nbsp;|&nbsp; <span style="color:#FFF;">{match['Home']}</span> vs <span style="color:#FFF;">{match['Away']}</span>
-                        </div>
-                        <table style="width:100%; text-align:center; font-size:0.85rem; border-collapse: collapse; line-height: 1.3;">
-                            <thead>
-                                <tr style="background-color:#2A2D3E; color:#A0A0B0;">
-                                    <th style="padding:6px 2px; width:10%; border-radius: 4px 0 0 0;">Q</th>
-                                    <th style="padding:6px 2px; width:15%;">Score</th>
-                                    <th style="padding:6px 2px; width:15%;">⚽</th>
-                                    <th style="padding:6px 2px; width:15%;">🎯</th>
-                                    <th style="padding:6px 2px; width:15%;">⚖️</th>
-                                    <th style="padding:6px 2px; width:15%;">🛡️</th>
-                                    <th style="padding:6px 2px; width:15%; border-radius: 0 4px 0 0;">🧤</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                    """
-                    
-                    for q in match['Quarters']:
-                        is_total = (q['Quarter'] == 'Total')
-                        row_style = "background-color:#252836; font-weight:bold; color:#FFD700; border-top: 1px solid #444;" if is_total else "border-bottom: 1px solid #2A2D3E;"
-                        
-                        goals = format_stat_with_highlight(q['Goals'], search_player)
-                        asts = format_stat_with_highlight(q['Assists'], search_player)
-                        bals = format_stat_with_highlight(q['Balances'], search_player)
-                        df_cs = format_stat_with_highlight(q['DF_CS'], search_player)
-                        gk_cs = format_stat_with_highlight(q['GK_CS'], search_player)
-                        
-                        html_content += f"""
-                                <tr style="{row_style}">
-                                    <td style="padding:6px 2px;">{q['Quarter']}</td>
-                                    <td style="padding:6px 2px;">{q['Score']}</td>
-                                    <td style="padding:6px 2px;">{goals}</td>
-                                    <td style="padding:6px 2px;">{asts}</td>
-                                    <td style="padding:6px 2px;">{bals}</td>
-                                    <td style="padding:6px 2px;">{df_cs}</td>
-                                    <td style="padding:6px 2px; color:#FFA726;">{gk_cs}</td>
-                                </tr>
-                        """
-                        
-                    html_content += """
-                            </tbody>
-                        </table>
-                    </div>
-                    """
-                    st.markdown(html_content.replace('\n', ' '), unsafe_allow_html=True)
+            # 🔥 해결된 모바일-웹 공통 정렬 로직 (Row 단위로 2개씩 묶어서 출력)
+            for i in range(0, len(filtered_matches), 2):
+                cols = st.columns(2)
+                for j in range(2):
+                    if i + j < len(filtered_matches):
+                        match = filtered_matches[i + j]
+                        with cols[j]:
+                            html_content = f"""
+                            <div style="background-color: #1A1C24; border-radius: 10px; padding: 12px; border: 1px solid #333344; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                                <div style="text-align:center; font-weight:700; color:#00D2FF; margin-bottom: 10px; font-size: 1.05rem; border-bottom: 1px solid #2A2D3E; padding-bottom: 6px;">
+                                    📅 {match['Date']} &nbsp;|&nbsp; <span style="color:#FFF;">{match['Home']}</span> vs <span style="color:#FFF;">{match['Away']}</span>
+                                </div>
+                                <table style="width:100%; text-align:center; font-size:0.85rem; border-collapse: collapse; line-height: 1.3;">
+                                    <thead>
+                                        <tr style="background-color:#2A2D3E; color:#A0A0B0;">
+                                            <th style="padding:6px 2px; width:10%; border-radius: 4px 0 0 0;">Q</th>
+                                            <th style="padding:6px 2px; width:15%;">Score</th>
+                                            <th style="padding:6px 2px; width:15%;">⚽</th>
+                                            <th style="padding:6px 2px; width:15%;">🎯</th>
+                                            <th style="padding:6px 2px; width:15%;">⚖️</th>
+                                            <th style="padding:6px 2px; width:15%;">🛡️</th>
+                                            <th style="padding:6px 2px; width:15%; border-radius: 0 4px 0 0;">🧤</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                            """
+                            
+                            for q in match['Quarters']:
+                                is_total = (q['Quarter'] == 'Total')
+                                row_style = "background-color:#252836; font-weight:bold; color:#FFD700; border-top: 1px solid #444;" if is_total else "border-bottom: 1px solid #2A2D3E;"
+                                
+                                goals = format_stat_with_highlight(q['Goals'], search_player)
+                                asts = format_stat_with_highlight(q['Assists'], search_player)
+                                bals = format_stat_with_highlight(q['Balances'], search_player)
+                                df_cs = format_stat_with_highlight(q['DF_CS'], search_player)
+                                gk_cs = format_stat_with_highlight(q['GK_CS'], search_player)
+                                
+                                html_content += f"""
+                                        <tr style="{row_style}">
+                                            <td style="padding:6px 2px;">{q['Quarter']}</td>
+                                            <td style="padding:6px 2px;">{q['Score']}</td>
+                                            <td style="padding:6px 2px;">{goals}</td>
+                                            <td style="padding:6px 2px;">{asts}</td>
+                                            <td style="padding:6px 2px;">{bals}</td>
+                                            <td style="padding:6px 2px;">{df_cs}</td>
+                                            <td style="padding:6px 2px; color:#FFA726;">{gk_cs}</td>
+                                        </tr>
+                                """
+                                
+                            html_content += """
+                                    </tbody>
+                                </table>
+                            </div>
+                            """
+                            st.markdown(html_content.replace('\n', ' '), unsafe_allow_html=True)
 
 # --- 7. 관리자 전용 데이터 업데이트 (엑셀 업로드) ---
 st.divider()
