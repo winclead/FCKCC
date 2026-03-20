@@ -118,6 +118,7 @@ def load_data(file_path):
                         players.append(p)
             return players
 
+        # Total Score 합산 로직
         def ensure_total(match):
             has_total = False
             total_q = None
@@ -143,8 +144,9 @@ def load_data(file_path):
                     total_q['ScoreA'] = str(sum_a)
                     total_q['Score'] = f"{sum_h} : {sum_a}"
 
+        # 경기 데이터 파싱 로직
         for index, row in df_match_raw.iterrows():
-            col_1 = safe_iloc(row, 1)
+            col_1 = safe_iloc(row, 1) # B열
             col_1_lower = col_1.lower()
             
             if re.match(r'^20\d\d-\d{2}-\d{2}', col_1): 
@@ -206,7 +208,12 @@ def load_data(file_path):
                     })
                 current_quarter = None 
             else:
-                existing_q = next((q for q in current_match['Quarters'] if q['Quarter'] == q_name), None)
+                # 🔥 [핵심 수정] 과거의 같은 이름 쿼터와 병합하는 것을 금지! 오직 '직전 쿼터'와 이름이 같을 때만 이어붙임
+                if current_quarter and current_quarter['Quarter'] == q_name:
+                    existing_q = current_quarter
+                else:
+                    existing_q = None
+
                 if existing_q:
                     existing_q['Goals'].extend(goals); existing_q['Assists'].extend(assists); existing_q['Balances'].extend(balances); existing_q['DF_CS'].extend(df_cs); existing_q['GK_CS'].extend(gk_cs)
                     if existing_q['ScoreH'] == "-" and score_h != "-": existing_q['ScoreH'] = score_h
@@ -378,7 +385,6 @@ else:
                 if show_match:
                     filtered_matches.append(match)
 
-            # 🔥 해결된 모바일-웹 공통 정렬 로직 (Row 단위로 2개씩 묶어서 출력)
             for i in range(0, len(filtered_matches), 2):
                 cols = st.columns(2)
                 for j in range(2):
