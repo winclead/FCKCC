@@ -58,17 +58,6 @@ with col_selectbox:
 
 selected_file = year_to_file[selected_year]
 
-with col_title:
-    st.title(f"⚽ 김청축 FC Data Analytics ({selected_year})")
-    try:
-        timestamp = os.path.getmtime(selected_file)
-        dt_utc = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
-        dt_kst = dt_utc.astimezone(datetime.timezone(datetime.timedelta(hours=9)))
-        update_str = dt_kst.strftime("%Y-%m-%d %H:%M")
-        st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Dashboard &nbsp;|&nbsp; 🔄 Last Updated: {update_str}</span>", unsafe_allow_html=True)
-    except:
-        st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Dashboard</span>", unsafe_allow_html=True)
-
 # --- 3. 데이터 로딩 및 전처리 함수 ---
 @st.cache_data
 def load_data(file_path):
@@ -280,12 +269,31 @@ def load_data(file_path):
         st.error(f"데이터를 읽는 중 오류가 발생했습니다: {e}")
         return None, None, None, None, None, None, None
 
+
+# 🔥 [구조 변경] 데이터부터 로드해서 "최근 경기 날짜"를 뽑아옵니다.
 res_load = load_data(selected_file)
 df_personal, df_merged, match_data, attendance_dict = res_load[0:4]
 
 unique_dates, player_daily_points_map, df_trend_baseline = [], {}, pd.DataFrame()
 if res_load and len(res_load) > 4:
     unique_dates, player_daily_points_map, df_trend_baseline = res_load[4:]
+
+# 최근 경기 날짜 텍스트 생성
+latest_match_date = unique_dates[-1] if unique_dates else "기록 없음"
+
+# 🔥 제목과 날짜 정보 렌더링
+with col_title:
+    st.title(f"⚽ 김청축 FC Data Analytics ({selected_year})")
+    try:
+        timestamp = os.path.getmtime(selected_file)
+        dt_utc = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+        dt_kst = dt_utc.astimezone(datetime.timezone(datetime.timedelta(hours=9)))
+        update_str = dt_kst.strftime("%Y-%m-%d %H:%M")
+        
+        st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Dashboard &nbsp;|&nbsp; 🏟️ <b>최근 경기: <span style='color:#00D2FF;'>{latest_match_date}</span></b> &nbsp;|&nbsp; 🔄 Last Updated: {update_str}</span>", unsafe_allow_html=True)
+    except:
+        st.markdown(f"<span style='color:#A0A0B0;'>{selected_year} Season Dashboard &nbsp;|&nbsp; 🏟️ <b>최근 경기: <span style='color:#00D2FF;'>{latest_match_date}</span></b></span>", unsafe_allow_html=True)
+
 
 # --- 4. 차트 생성 헬퍼 함수 ---
 def create_top10_chart(df, column, title, color):
@@ -411,6 +419,7 @@ else:
 
                 if not df_chart_final.empty:
                     fig_display = px.bar(df_chart_final, x='Date', y='Point', title=chart_title)
+                    
                     fig_display.update_traces(
                         marker_color=bar_color, 
                         hovertemplate="날짜: %{x}<br>포인트: %{y:.2f} P<extra></extra>"
@@ -423,7 +432,6 @@ else:
                         xaxis=dict(title="", tickformat="%m/%d", showgrid=False, fixedrange=True, type='category', categoryorder='array', categoryarray=unique_dates),
                         yaxis=dict(title="Point", showgrid=True, gridcolor="#2A2D3E", fixedrange=True)
                     )
-                    # 🔥 [완벽 해결] 경고가 뜨던 use_container_width=True를 width='stretch'로 변경!
                     st.plotly_chart(fig_display, width='stretch', config={'displayModeBar': False})
                     
                     if exact_player_searched:
